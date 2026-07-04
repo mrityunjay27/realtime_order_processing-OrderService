@@ -2,6 +2,8 @@ from django.db import transaction
 from orders.models import Order, OrderItem, Product
 from django.core.exceptions import ValidationError
 from orders.events.order_events import OrderCreatedEvent, OrderItemEvent
+from orders.events.event_publisher import ConsoleEventPublisher
+from dataclasses import asdict
 
 class OrderService:
 
@@ -67,6 +69,8 @@ class OrderService:
         order.total_amount = total
         order.save()
 
+        publisher = ConsoleEventPublisher()
         event = OrderService.build_order_created_event(order)
+        publisher.publish("order_created", asdict(event))
 
         return order
