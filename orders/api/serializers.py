@@ -1,5 +1,7 @@
 from rest_framework import serializers
-from orders.models import Order, OrderItem, Customer, Product
+from orders.models import Order, OrderItem
+from orders.services.order_service import OrderService
+
 
 class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -17,26 +19,6 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         items_data = validated_data.pop("items")
+        customer = validated_data["customer"]
 
-        order = Order.objects.create(**validated_data)
-
-        total = 0
-
-        for item in items_data:
-            product = item["product"]
-            quantity = item["quantity"]
-            price = item["price"]
-
-            OrderItem.objects.create(
-                order=order,
-                product=product,
-                quantity=quantity,
-                price=price
-            )
-
-            total += price * quantity
-
-        order.total_amount = total
-        order.save()
-
-        return order
+        return OrderService.create_order(customer, items_data)
