@@ -1,0 +1,38 @@
+Work done so far.
+
+Django app (On this machine)
+Postgres (On docker container)
+Kafka (On docker container)
+Kafka UI (On docker container)
+
+To run:
+
+docker compose up -d  # This makes postgres, kafka and its ui UP an Running.
+python manage.py runserver
+
+docker compose down
+
+Hit this curl.
+
+curl -X POST http://127.0.0.1:8000/api/orders/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer": "3ba8f8e8-3a87-4b32-8194-eab85a81c2d4",
+    "items": [
+      {
+        "product": "64da52ff-7c52-447b-bfff-f11d7ef1ab88",
+        "quantity": 2,
+        "price": "100.00"
+      },
+      {
+        "product": "3cdf7e1a-7555-47b4-8b33-fe9c2cc616f5",
+        "quantity": 1,
+        "price": "200.00"
+      }
+    ]
+  }'
+
+
+  What will happen:
+  Order is created in DB.
+  Mesage is published on kafka with some topic name.

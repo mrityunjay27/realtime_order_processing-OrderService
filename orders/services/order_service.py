@@ -3,6 +3,7 @@ from orders.models import Order, OrderItem, Product
 from django.core.exceptions import ValidationError
 from orders.events.order_events import OrderCreatedEvent, OrderItemEvent
 from orders.events.event_publisher import ConsoleEventPublisher
+from orders.events.kafka_publisher import KafkaEventPublisher
 from dataclasses import asdict
 
 class OrderService:
@@ -33,6 +34,10 @@ class OrderService:
     def create_order(customer, items_data):
         """
         Creates order + items + calculates total
+        Step 1: Create order with status PENDING and total_amount 0
+        Step 2: Create order items and calculate total_amount
+        Step 3: Update order with total_amount
+        Step 4: Publish order created event to Kafka
         """
 
         order = Order.objects.create(
@@ -69,8 +74,14 @@ class OrderService:
         order.total_amount = total
         order.save()
 
-        publisher = ConsoleEventPublisher()
+        # Publish to console log
+        # publisher = ConsoleEventPublisher()
+        # event = OrderService.build_order_created_event(order)
+        # publisher.publish("order_created", asdict(event))
+
+        # Publish to Kafka
+        publisher = KafkaEventPublisher()
         event = OrderService.build_order_created_event(order)
-        publisher.publish("order_created", asdict(event))
+        publisher.publish("orders.created", asdict(event))  # We have to create this topic manually.
 
         return order
