@@ -1,15 +1,24 @@
 import json
-from kafka import KafkaProducer
+import logging
+from confluent_kafka import Producer
+
+logger = logging.getLogger(__name__)
 
 
 class KafkaEventPublisher:
     def __init__(self):
-        self.producer = KafkaProducer(
-            bootstrap_servers="localhost:9092",  # Kafka is available at this location. Via port fowarding from container to host machine.
-            value_serializer=lambda v: json.dumps(v).encode("utf-8")
-        )
+        config = {
+            "bootstrap.servers": "localhost:9092",
+        }
+        self.producer = Producer(config)
+
+    def delivery_report(self, err, msg):
+        if err is not None:
+            logger.error(f"Delivery failed for {msg.topic()}: {err}")
+        else:
+            logger.info(f"Delivered to {msg.topic()} [{msg.partition()}] @ {msg.offset()}")
 
     def publish(self, topic: str, event: dict):
-        self.producer.send(topic, value=event)
+        payload = json.dumps(event).encode("utf-8")
+        self.producer.produce(topic, value=payload, callback=self.delivery_report)
         self.producer.flush()
-        print(f"🚀 Event sent to Kafka topic: {topic}")
