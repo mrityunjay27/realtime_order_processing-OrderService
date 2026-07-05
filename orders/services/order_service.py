@@ -1,5 +1,5 @@
 from django.db import transaction
-from orders.models import Order, OrderItem, Product
+from orders.models import Order, OrderItem
 from django.core.exceptions import ValidationError
 from orders.events.order_events import OrderCreatedEvent, OrderItemEvent
 from orders.events.event_publisher import ConsoleEventPublisher
@@ -15,7 +15,7 @@ class OrderService:
         for item in order.items.all():
             items.append(
                 OrderItemEvent(
-                    product_id=str(item.product.id),
+                    product_id=str(item.product_id),
                     quantity=item.quantity,
                     price=float(item.price)
                 )
@@ -49,7 +49,7 @@ class OrderService:
         total = 0
 
         for item in items_data:
-            product = item["product"]
+            product_id = item["product_id"]
             quantity = item["quantity"]
             price = item["price"]
 
@@ -59,12 +59,9 @@ class OrderService:
             if price <= 0:
                 raise ValidationError("Price must be greater than 0")
 
-            if not Product.objects.filter(id=product.id).exists():
-                raise ValidationError(f"Product {product.id} does not exist")
-
             OrderItem.objects.create(
                 order=order,
-                product=product,
+                product_id=product_id,
                 quantity=quantity,
                 price=price
             )

@@ -6,7 +6,7 @@ from orders.services.order_service import OrderService
 class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
-        fields = ["product", "quantity", "price"]
+        fields = ["product_id", "quantity", "price"]
 
 
 class OrderSerializer(serializers.ModelSerializer):

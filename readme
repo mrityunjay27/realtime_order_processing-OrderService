@@ -1,20 +1,20 @@
 Work done so far.
 
 Django app (On this machine)
-Postgres (On docker container)
+Postgres (On docker container) 5433
 Kafka (On docker container)
 Kafka UI (On docker container)
-
+More info in docker compose file
 To run:
 
 docker compose up -d  # This makes postgres, kafka and its ui UP an Running.
-python manage.py runserver
+python manage.py runserver 127.0.0.1:8001
 
 docker compose down
 
 Hit this curl.
 
-curl -X POST http://127.0.0.1:8000/api/orders/ \
+curl -X POST http://127.0.0.1:8001/api/orders/ \
   -H "Content-Type: application/json" \
   -d '{
     "customer": "3ba8f8e8-3a87-4b32-8194-eab85a81c2d4",
