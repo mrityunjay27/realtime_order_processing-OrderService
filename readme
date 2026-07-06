@@ -36,3 +36,6 @@ curl -X POST http://127.0.0.1:8001/api/orders/ \
   What will happen:
   Order is created in DB.
   Mesage is published on kafka with some topic name.
+
+
+  Start consumer:python manage.py consume_events

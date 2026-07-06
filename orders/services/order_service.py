@@ -82,3 +82,25 @@ class OrderService:
         publisher.publish("orders.created", asdict(event))  # We have to create this topic manually.
 
         return order
+    
+    @staticmethod
+    @transaction.atomic
+    def confirm_order(order_id):
+        try:
+            order = Order.objects.get(id=order_id)
+            order.status = "CONFIRMED"
+            order.save()
+            print(f"✅ Order {order_id} confirmed.")
+        except Order.DoesNotExist:
+            print(f"❌ Order {order_id} does not exist.")
+
+    @staticmethod
+    @transaction.atomic
+    def fail_order(order_id):
+        try:
+            order = Order.objects.get(id=order_id)
+            order.status = "FAILED"
+            order.save()
+            print(f"❌ Order {order_id} failed.")
+        except Order.DoesNotExist:
+            print(f"❌ Order {order_id} does not exist.")

@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 from typing import List
 
+ORDER_CREATED = "order.created"
+INVENTORY_RESERVED = "inventory.reserved"
+INVENTORY_FAILED = "inventory.failed"
+
 
 @dataclass
 class OrderItemEvent:
