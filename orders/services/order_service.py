@@ -1,10 +1,13 @@
+import logging
+
 from django.db import transaction
 from orders.models import Order, OrderItem
 from django.core.exceptions import ValidationError
 from orders.events.order_events import OrderCreatedEvent, OrderItemEvent
-from orders.events.event_publisher import ConsoleEventPublisher
 from orders.events.kafka_publisher import KafkaEventPublisher
 from dataclasses import asdict
+
+logger = logging.getLogger(__name__)
 
 class OrderService:
 
@@ -90,9 +93,9 @@ class OrderService:
             order = Order.objects.get(id=order_id)
             order.status = "CONFIRMED"
             order.save()
-            print(f"✅ Order {order_id} confirmed.")
+            logger.info("Order %s confirmed.", order_id)
         except Order.DoesNotExist:
-            print(f"❌ Order {order_id} does not exist.")
+            logger.warning("Order %s does not exist.", order_id)
 
     @staticmethod
     @transaction.atomic
@@ -101,6 +104,6 @@ class OrderService:
             order = Order.objects.get(id=order_id)
             order.status = "FAILED"
             order.save()
-            print(f"❌ Order {order_id} failed.")
+            logger.info("Order %s failed.", order_id)
         except Order.DoesNotExist:
-            print(f"❌ Order {order_id} does not exist.")
+            logger.warning("Order %s does not exist.", order_id)

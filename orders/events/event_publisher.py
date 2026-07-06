@@ -18,10 +18,7 @@ class ConsoleEventPublisher:
             "event": event
         }
 
-        logger.info(f"EVENT PUBLISHED: {json.dumps(payload, indent=2)}")
-
-        print("\n🚀 EVENT PUBLISHED 🚀")
-        print(json.dumps(payload, indent=2))
+        logger.info("EVENT PUBLISHED:\n%s", json.dumps(payload, indent=2))
 
 class EventPublisher:
     """

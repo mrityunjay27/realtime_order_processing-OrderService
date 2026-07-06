@@ -1,7 +1,10 @@
 import json
+import logging
 
 from confluent_kafka import Consumer
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 from orders.events.order_events import (
     INVENTORY_RESERVED,
@@ -23,14 +26,14 @@ class KafkaEventConsumer:
 
     
     def handle_inventory_reserved(self, event):
-        print(f"✅ Inventory reserved for order {event['order_id']}")
+        logger.info("Inventory reserved for order %s", event["order_id"])
         OrderService.confirm_order(
             order_id=event["order_id"]
         )
 
     def handle_inventory_failed(self, event):
         
-        print(f"❌ Inventory reservation failed for order {event['order_id']}")
+        logger.warning("Inventory reservation failed for order %s", event["order_id"])
         OrderService.fail_order(
                 order_id=event["order_id"],
             )        
@@ -45,7 +48,7 @@ class KafkaEventConsumer:
             INVENTORY_FAILED: self.handle_inventory_failed,
         }
 
-        print("🚀 Order Consumer Started...")
+        logger.info("Order Consumer Started...")
 
         try:
             while True:
@@ -55,18 +58,18 @@ class KafkaEventConsumer:
                     continue
 
                 if msg.error():
-                    print(msg.error())
+                    logger.error("Consumer error: %s", msg.error())
                     continue
 
                 topic = msg.topic()
                 event = json.loads(msg.value().decode("utf-8"))
 
-                print(f"📩 Received event from {topic}: {event}")
+                logger.info("Received event from %s: %s", topic, event)
 
                 if topic in EVENT_HANDLERS:
                     EVENT_HANDLERS[topic](event)
                 else:
-                    print(f"⚠️ No handler for topic {topic}")
+                    logger.warning("No handler for topic %s", topic)
 
         finally:
             self.consumer.close()
