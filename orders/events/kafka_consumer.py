@@ -1,11 +1,31 @@
+# Order Kafka Consumer: Processes inventory-reserved and inventory-failed
+# events from Kafka, updating order status accordingly.
+#
+# Idempotency guarantee:
+#   Kafka delivers messages at-least-once. This consumer ensures each
+#   event is processed exactly once by wrapping the business logic and
+#   the ProcessedEvent insert in a single database transaction.
+#
+# Failure scenarios handled:
+#   1. Duplicate delivery → already_processed() check skips it
+#   2. Crash after processing but before mark_processed → Kafka
+#      redelivers; already_processed() catches it on retry
+#   3. Crash after mark_processed but before commit → transaction
+#      rolls back; Kafka redelivers; clean retry
+#   4. Two consumers process same event concurrently → one succeeds,
+#      the other gets IntegrityError from unique constraint → caught
+#      and logged, no data corruption
+
 import logging
 
 from confluent_kafka import Consumer
 from django.conf import settings
+from django.db import transaction, IntegrityError
 
 logger = logging.getLogger(__name__)
 
 from orders.events.event_envelope import EventEnvelope
+from orders.events.idempotency import IdempotencyService
 from orders.events.order_events import (
     INVENTORY_RESERVED,
     INVENTORY_FAILED,
@@ -64,11 +84,20 @@ class KafkaEventConsumer:
 
                 logger.info("Received event [%s] from %s: %s", envelope.event_id, envelope.event_type, envelope.payload)
 
-                handler = EVENT_HANDLERS.get(envelope.event_type)
-                if handler:
-                    handler(envelope)
-                else:
-                    logger.warning("No handler for event_type %s", envelope.event_type)
+                try:
+                    with transaction.atomic():
+                        if IdempotencyService.already_processed(envelope.event_id):
+                            logger.info("Event %s already processed, skipping", envelope.event_id)
+                            continue
+
+                        handler = EVENT_HANDLERS.get(envelope.event_type)
+                        if handler:
+                            handler(envelope)
+                            IdempotencyService.mark_processed(envelope.event_id, envelope.event_type)
+                        else:
+                            logger.warning("No handler for event_type %s", envelope.event_type)
+                except IntegrityError:
+                    logger.info("Event %s already processed by another consumer", envelope.event_id)
 
         finally:
             self.consumer.close()

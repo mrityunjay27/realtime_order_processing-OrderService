@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 
+
 class OrderStatus(models.TextChoices):
     PENDING = "PENDING", "Pending"
     CONFIRMED = "CONFIRMED", "Confirmed"
@@ -20,7 +21,7 @@ class Customer(models.Model):
 
     def __str__(self):
         return self.name
-    
+
 
 class Order(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -44,7 +45,7 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order({self.id})"
-    
+
 
 class OrderItem(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
