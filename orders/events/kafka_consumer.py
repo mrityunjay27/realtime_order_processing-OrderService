@@ -26,14 +26,15 @@ class KafkaEventConsumer:
 
     
     def handle_inventory_reserved(self, event):
-        logger.info("Inventory reserved for order %s", event["order_id"])
+        cid = event.get("correlation_id", "unknown")
+        logger.info("Inventory reserved for order %s [%s]", event["order_id"], cid)
         OrderService.confirm_order(
             order_id=event["order_id"]
         )
 
     def handle_inventory_failed(self, event):
-        
-        logger.warning("Inventory reservation failed for order %s", event["order_id"])
+        cid = event.get("correlation_id", "unknown")
+        logger.warning("Inventory reservation failed for order %s [%s]", event["order_id"], cid)
         OrderService.fail_order(
                 order_id=event["order_id"],
             )        
