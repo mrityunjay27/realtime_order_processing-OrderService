@@ -1,24 +1,22 @@
 # Order Kafka Consumer: Processes inventory-reserved and inventory-failed
 # events from Kafka, updating order status accordingly.
 #
-# Idempotency guarantee:
-#   Kafka delivers messages at-least-once. This consumer ensures each
-#   event is processed exactly once by wrapping the business logic and
-#   the ProcessedEvent insert in a single database transaction.
+# Offset commit strategy:
+#   Kafka auto-commit is DISABLED. The offset is committed manually only
+#   AFTER the database transaction succeeds. This guarantees:
 #
-# Failure scenarios handled:
-#   1. Duplicate delivery → already_processed() check skips it
-#   2. Crash after processing but before mark_processed → Kafka
-#      redelivers; already_processed() catches it on retry
-#   3. Crash after mark_processed but before commit → transaction
-#      rolls back; Kafka redelivers; clean retry
-#   4. Two consumers process same event concurrently → one succeeds,
-#      the other gets IntegrityError from unique constraint → caught
-#      and logged, no data corruption
+#   - DB commit + Kafka commit are both done → event fully processed
+#   - DB fails → no Kafka commit → Kafka redelivers on restart
+#   - Crash between DB commit and Kafka commit → Kafka redelivers,
+#     but ProcessedEvent's unique constraint prevents re-processing
+#
+# This is the foundation for retry and DLQ: if processing fails,
+# the offset is NOT committed, so Kafka will redeliver the message
+# on consumer restart. A future retry limit can then route to DLQ.
 
 import logging
 
-from confluent_kafka import Consumer
+from confluent_kafka import Consumer, KafkaError
 from django.conf import settings
 from django.db import transaction, IntegrityError
 
@@ -41,6 +39,7 @@ class KafkaEventConsumer:
                 "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
                 "group.id": "order-service-group",
                 "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
             }
         )
 
@@ -77,6 +76,8 @@ class KafkaEventConsumer:
                     continue
 
                 if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        continue
                     logger.error("Consumer error: %s", msg.error())
                     continue
 
@@ -87,17 +88,27 @@ class KafkaEventConsumer:
                 try:
                     with transaction.atomic():
                         if IdempotencyService.already_processed(envelope.event_id):
-                            logger.info("Event %s already processed, skipping", envelope.event_id)
-                            continue
+                            logger.info("Event %s already processed", envelope.event_id)
 
-                        handler = EVENT_HANDLERS.get(envelope.event_type)
-                        if handler:
-                            handler(envelope)
+                        elif envelope.event_type in EVENT_HANDLERS:
+                            EVENT_HANDLERS[envelope.event_type](envelope)
                             IdempotencyService.mark_processed(envelope.event_id, envelope.event_type)
+
                         else:
                             logger.warning("No handler for event_type %s", envelope.event_type)
+
+                    # DB transaction succeeded — safe to commit Kafka offset
+                    self.consumer.commit(msg)
+
                 except IntegrityError:
-                    logger.info("Event %s already processed by another consumer", envelope.event_id)
+                    # Database says duplicate (race condition) — safe to commit
+                    logger.info("Duplicate event %s, committing offset", envelope.event_id)
+                    self.consumer.commit(msg)
+
+                except Exception:
+                    # Processing failed — do NOT commit.
+                    # Kafka will redeliver on consumer restart.
+                    logger.exception("Failed processing event %s, will retry", envelope.event_id)
 
         finally:
             self.consumer.close()
