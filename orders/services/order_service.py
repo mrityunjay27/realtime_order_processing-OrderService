@@ -1,10 +1,14 @@
 import logging
 
-from django.db import transaction
+from django.db import transaction, DatabaseError
 from orders.models import Order, OrderItem
 from django.core.exceptions import ValidationError
 from orders.events.order_events import OrderCreatedEvent, OrderItemEvent
 from orders.events.kafka_publisher import KafkaEventPublisher
+from orders.events.exceptions import (
+    RetryableEventException,
+    NonRetryableEventException,
+)
 from dataclasses import asdict
 
 logger = logging.getLogger(__name__)
@@ -95,7 +99,13 @@ class OrderService:
             order.save()
             logger.info("Order %s confirmed.", order_id)
         except Order.DoesNotExist:
-            logger.warning("Order %s does not exist.", order_id)
+            raise NonRetryableEventException(
+                f"Order {order_id} not found"
+            )
+        except DatabaseError as exc:
+            raise RetryableEventException(
+                f"Database error while confirming order: {exc}"
+            ) from exc
 
     @staticmethod
     @transaction.atomic
@@ -106,4 +116,10 @@ class OrderService:
             order.save()
             logger.info("Order %s failed.", order_id)
         except Order.DoesNotExist:
-            logger.warning("Order %s does not exist.", order_id)
+            raise NonRetryableEventException(
+                f"Order {order_id} not found"
+            )
+        except DatabaseError as exc:
+            raise RetryableEventException(
+                f"Database error while failing order: {exc}"
+            ) from exc

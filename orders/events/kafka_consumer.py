@@ -1,19 +1,3 @@
-# Order Kafka Consumer: Processes inventory-reserved and inventory-failed
-# events from Kafka, updating order status accordingly.
-#
-# Offset commit strategy:
-#   Kafka auto-commit is DISABLED. The offset is committed manually only
-#   AFTER the database transaction succeeds. This guarantees:
-#
-#   - DB commit + Kafka commit are both done → event fully processed
-#   - DB fails → no Kafka commit → Kafka redelivers on restart
-#   - Crash between DB commit and Kafka commit → Kafka redelivers,
-#     but ProcessedEvent's unique constraint prevents re-processing
-#
-# This is the foundation for retry and DLQ: if processing fails,
-# the offset is NOT committed, so Kafka will redeliver the message
-# on consumer restart. A future retry limit can then route to DLQ.
-
 import logging
 
 from confluent_kafka import Consumer, KafkaError
@@ -26,8 +10,11 @@ from orders.events.event_envelope import EventEnvelope
 from orders.events.idempotency import IdempotencyService
 from orders.events.order_events import (
     INVENTORY_RESERVED,
+    INVENTORY_RESERVED_RETRY,
     INVENTORY_FAILED,
+    INVENTORY_FAILED_RETRY,
 )
+from orders.events.failure_handler import FailureHandler
 from orders.services.order_service import OrderService
 
 
@@ -42,6 +29,16 @@ class KafkaEventConsumer:
                 "enable.auto.commit": False,
             }
         )
+        self.failure_handlers = {
+            INVENTORY_RESERVED: FailureHandler(
+                retry_topic="inventory.reserved.retry",
+                dlq_topic="inventory.reserved.dlq",
+            ),
+            INVENTORY_FAILED: FailureHandler(
+                retry_topic="inventory.failed.retry",
+                dlq_topic="inventory.failed.dlq",
+            ),
+        }
 
     
     def handle_inventory_reserved(self, envelope: EventEnvelope):
@@ -59,11 +56,15 @@ class KafkaEventConsumer:
     def start(self):
         self.consumer.subscribe([
             INVENTORY_RESERVED,
+            INVENTORY_RESERVED_RETRY,
             INVENTORY_FAILED,
+            INVENTORY_FAILED_RETRY,
         ])
         EVENT_HANDLERS = {
             INVENTORY_RESERVED: self.handle_inventory_reserved,
+            INVENTORY_RESERVED_RETRY: self.handle_inventory_reserved,
             INVENTORY_FAILED: self.handle_inventory_failed,
+            INVENTORY_FAILED_RETRY: self.handle_inventory_failed,
         }
 
         logger.info("Order Consumer Started...")
@@ -82,6 +83,7 @@ class KafkaEventConsumer:
                     continue
 
                 envelope = EventEnvelope.from_json(msg.value().decode("utf-8"))
+                envelope_dict = envelope.to_dict()
 
                 logger.info("Received event [%s] from %s: %s", envelope.event_id, envelope.event_type, envelope.payload)
 
@@ -105,10 +107,15 @@ class KafkaEventConsumer:
                     logger.info("Duplicate event %s, committing offset", envelope.event_id)
                     self.consumer.commit(msg)
 
-                except Exception:
-                    # Processing failed — do NOT commit.
-                    # Kafka will redeliver on consumer restart.
-                    logger.exception("Failed processing event %s, will retry", envelope.event_id)
+                except Exception as exc:
+                    self.consumer.commit(msg)
+                    # Route to the correct failure handler based on base event type
+                    base_type = envelope.event_type.replace(".retry", "")
+                    handler = self.failure_handlers.get(base_type)
+                    if handler:
+                        handler.handle(envelope_dict, exc)
+                    else:
+                        logger.exception("No failure handler for event_type %s", envelope.event_type)
 
         finally:
             self.consumer.close()

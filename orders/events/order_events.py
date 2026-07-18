@@ -4,7 +4,11 @@ from uuid import uuid4
 
 ORDER_CREATED = "order.created"
 INVENTORY_RESERVED = "inventory.reserved"
+INVENTORY_RESERVED_RETRY = "inventory.reserved.retry"
+INVENTORY_RESERVED_DLQ = "inventory.reserved.dlq"
 INVENTORY_FAILED = "inventory.failed"
+INVENTORY_FAILED_RETRY = "inventory.failed.retry"
+INVENTORY_FAILED_DLQ = "inventory.failed.dlq"
 
 
 @dataclass
