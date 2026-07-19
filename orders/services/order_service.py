@@ -4,7 +4,8 @@ from django.db import transaction, DatabaseError
 from orders.models import Order, OrderItem
 from django.core.exceptions import ValidationError
 from orders.events.order_events import OrderCreatedEvent, OrderItemEvent
-from orders.events.kafka_publisher import KafkaEventPublisher
+from orders.events.event_envelope import EventEnvelope
+from orders.events.outbox_service import OutboxService
 from orders.events.exceptions import (
     RetryableEventException,
     NonRetryableEventException,
@@ -40,11 +41,11 @@ class OrderService:
     @transaction.atomic
     def create_order(customer, items_data):
         """
-        Creates order + items + calculates total
-        Step 1: Create order with status PENDING and total_amount 0
-        Step 2: Create order items and calculate total_amount
-        Step 3: Update order with total_amount
-        Step 4: Publish order created event to Kafka
+        Creates order + items + calculates total + saves to outbox.
+
+        The Kafka publish happens asynchronously via the outbox publisher.
+        This guarantees that the order and the event are either both saved
+        or neither is — no orphaned events or lost orders.
         """
 
         order = Order.objects.create(
@@ -78,15 +79,19 @@ class OrderService:
         order.total_amount = total
         order.save()
 
-        # Publish to console log
-        # publisher = ConsoleEventPublisher()
-        # event = OrderService.build_order_created_event(order)
-        # publisher.publish("order_created", asdict(event))
-
-        # Publish to Kafka
-        publisher = KafkaEventPublisher()
         event = OrderService.build_order_created_event(order)
-        publisher.publish("orders.created", asdict(event))  # We have to create this topic manually.
+
+        envelope = EventEnvelope(
+            event_type="orders.created",
+            correlation_id=event.correlation_id,
+            payload=asdict(event),
+        )
+
+        OutboxService.create_event(
+            event_id=envelope.event_id,
+            event_type=envelope.event_type,
+            payload=envelope.to_dict(),
+        )
 
         return order
     
