@@ -97,19 +97,59 @@ class OrderService:
     
     @staticmethod
     @transaction.atomic
-    def confirm_order(order_id):
+    def set_inventory_reserved(order_id, correlation_id):
         try:
             order = Order.objects.get(id=order_id)
-            order.status = "CONFIRMED"
+            order.status = "INVENTORY_RESERVED"
             order.save()
-            logger.info("Order %s confirmed.", order_id)
+
+            _publish_payment_requested(correlation_id, order_id, float(order.total_amount))
+
+            logger.info("Order %s — inventory reserved, payment requested.", order_id)
         except Order.DoesNotExist:
             raise NonRetryableEventException(
                 f"Order {order_id} not found"
             )
         except DatabaseError as exc:
             raise RetryableEventException(
-                f"Database error while confirming order: {exc}"
+                f"Database error while updating order to INVENTORY_RESERVED: {exc}"
+            ) from exc
+
+    @staticmethod
+    @transaction.atomic
+    def handle_payment_succeeded(order_id):
+        try:
+            order = Order.objects.get(id=order_id)
+            order.status = "COMPLETED"
+            order.save()
+            logger.info("Order %s completed — payment succeeded.", order_id)
+        except Order.DoesNotExist:
+            raise NonRetryableEventException(
+                f"Order {order_id} not found"
+            )
+        except DatabaseError as exc:
+            raise RetryableEventException(
+                f"Database error while completing order: {exc}"
+            ) from exc
+
+    @staticmethod
+    @transaction.atomic
+    def handle_payment_failed(order_id, correlation_id):
+        try:
+            order = Order.objects.get(id=order_id)
+            order.status = "FAILED"
+            order.save()
+
+            _publish_release_inventory(correlation_id, order_id, order)
+
+            logger.info("Order %s failed — payment failed, releasing inventory.", order_id)
+        except Order.DoesNotExist:
+            raise NonRetryableEventException(
+                f"Order {order_id} not found"
+            )
+        except DatabaseError as exc:
+            raise RetryableEventException(
+                f"Database error while failing order: {exc}"
             ) from exc
 
     @staticmethod
@@ -128,3 +168,44 @@ class OrderService:
             raise RetryableEventException(
                 f"Database error while failing order: {exc}"
             ) from exc
+
+
+def _publish_payment_requested(correlation_id, order_id, amount):
+    envelope = EventEnvelope(
+        event_type="payments.requested",
+        correlation_id=correlation_id,
+        payload={
+            "correlation_id": correlation_id,
+            "order_id": order_id,
+            "amount": amount,
+        },
+    )
+    OutboxService.create_event(
+        event_id=envelope.event_id,
+        event_type=envelope.event_type,
+        payload=envelope.to_dict(),
+    )
+
+
+def _publish_release_inventory(correlation_id, order_id, order):
+    items = []
+    for item in order.items.all():
+        items.append({
+            "product_id": str(item.product_id),
+            "quantity": item.quantity,
+        })
+
+    envelope = EventEnvelope(
+        event_type="inventory.release",
+        correlation_id=correlation_id,
+        payload={
+            "correlation_id": correlation_id,
+            "order_id": order_id,
+            "items": items,
+        },
+    )
+    OutboxService.create_event(
+        event_id=envelope.event_id,
+        event_type=envelope.event_type,
+        payload=envelope.to_dict(),
+    )

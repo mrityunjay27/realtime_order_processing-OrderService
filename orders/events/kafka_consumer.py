@@ -13,6 +13,10 @@ from orders.events.order_events import (
     INVENTORY_RESERVED_RETRY,
     INVENTORY_FAILED,
     INVENTORY_FAILED_RETRY,
+    PAYMENT_SUCCEEDED,
+    PAYMENT_SUCCEEDED_RETRY,
+    PAYMENT_FAILED,
+    PAYMENT_FAILED_RETRY,
 )
 from orders.events.failure_handler import FailureHandler
 from orders.services.order_service import OrderService
@@ -38,13 +42,22 @@ class KafkaEventConsumer:
                 retry_topic="inventory.failed.retry",
                 dlq_topic="inventory.failed.dlq",
             ),
+            PAYMENT_SUCCEEDED: FailureHandler(
+                retry_topic="payments.succeeded.retry",
+                dlq_topic="payments.succeeded.dlq",
+            ),
+            PAYMENT_FAILED: FailureHandler(
+                retry_topic="payments.failed.retry",
+                dlq_topic="payments.failed.dlq",
+            ),
         }
 
     
     def handle_inventory_reserved(self, envelope: EventEnvelope):
         logger.info("Inventory reserved for order %s [%s]", envelope.payload["order_id"], envelope.correlation_id)
-        OrderService.confirm_order(
-            order_id=envelope.payload["order_id"]
+        OrderService.set_inventory_reserved(
+            order_id=envelope.payload["order_id"],
+            correlation_id=envelope.correlation_id,
         )
 
     def handle_inventory_failed(self, envelope: EventEnvelope):
@@ -53,18 +66,39 @@ class KafkaEventConsumer:
                 order_id=envelope.payload["order_id"],
             )        
 
+    def handle_payment_succeeded(self, envelope: EventEnvelope):
+        logger.info("Payment succeeded for order %s [%s]", envelope.payload["order_id"], envelope.correlation_id)
+        OrderService.handle_payment_succeeded(
+            order_id=envelope.payload["order_id"],
+        )
+
+    def handle_payment_failed(self, envelope: EventEnvelope):
+        logger.warning("Payment failed for order %s [%s]", envelope.payload["order_id"], envelope.correlation_id)
+        OrderService.handle_payment_failed(
+            order_id=envelope.payload["order_id"],
+            correlation_id=envelope.correlation_id,
+        )
+
     def start(self):
         self.consumer.subscribe([
             INVENTORY_RESERVED,
             INVENTORY_RESERVED_RETRY,
             INVENTORY_FAILED,
             INVENTORY_FAILED_RETRY,
+            PAYMENT_SUCCEEDED,
+            PAYMENT_SUCCEEDED_RETRY,
+            PAYMENT_FAILED,
+            PAYMENT_FAILED_RETRY,
         ])
         EVENT_HANDLERS = {
             INVENTORY_RESERVED: self.handle_inventory_reserved,
             INVENTORY_RESERVED_RETRY: self.handle_inventory_reserved,
             INVENTORY_FAILED: self.handle_inventory_failed,
             INVENTORY_FAILED_RETRY: self.handle_inventory_failed,
+            PAYMENT_SUCCEEDED: self.handle_payment_succeeded,
+            PAYMENT_SUCCEEDED_RETRY: self.handle_payment_succeeded,
+            PAYMENT_FAILED: self.handle_payment_failed,
+            PAYMENT_FAILED_RETRY: self.handle_payment_failed,
         }
 
         logger.info("Order Consumer Started...")

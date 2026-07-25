@@ -10,6 +10,17 @@ INVENTORY_FAILED = "inventory.failed"
 INVENTORY_FAILED_RETRY = "inventory.failed.retry"
 INVENTORY_FAILED_DLQ = "inventory.failed.dlq"
 
+PAYMENT_SUCCEEDED = "payments.succeeded"
+PAYMENT_SUCCEEDED_RETRY = "payments.succeeded.retry"
+PAYMENT_SUCCEEDED_DLQ = "payments.succeeded.dlq"
+PAYMENT_FAILED = "payments.failed"
+PAYMENT_FAILED_RETRY = "payments.failed.retry"
+PAYMENT_FAILED_DLQ = "payments.failed.dlq"
+
+RELEASE_INVENTORY = "inventory.release"
+RELEASE_INVENTORY_RETRY = "inventory.release.retry"
+RELEASE_INVENTORY_DLQ = "inventory.release.dlq"
+
 
 @dataclass
 class OrderItemEvent:

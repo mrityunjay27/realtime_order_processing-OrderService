@@ -4,7 +4,10 @@ from django.db import models
 
 class OrderStatus(models.TextChoices):
     PENDING = "PENDING", "Pending"
+    INVENTORY_RESERVED = "INVENTORY_RESERVED", "Inventory Reserved"
     CONFIRMED = "CONFIRMED", "Confirmed"
+    COMPLETED = "COMPLETED", "Completed"
+    FAILED = "FAILED", "Failed"
     CANCELLED = "CANCELLED", "Cancelled"
 
 
