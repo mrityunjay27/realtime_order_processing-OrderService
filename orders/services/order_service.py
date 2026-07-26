@@ -6,6 +6,8 @@ from django.core.exceptions import ValidationError
 from orders.events.order_events import OrderCreatedEvent, OrderItemEvent
 from orders.events.event_envelope import EventEnvelope
 from orders.events.outbox_service import OutboxService
+from orders.events.audit.services import EventHistoryService
+from orders.events.audit.constants import AGGREGATE_ORDER, format_aggregate_id
 from orders.events.exceptions import (
     RetryableEventException,
     NonRetryableEventException,
@@ -90,6 +92,15 @@ class OrderService:
         OutboxService.create_event(
             event_id=envelope.event_id,
             event_type=envelope.event_type,
+            payload=envelope.to_dict(),
+        )
+
+        EventHistoryService.record_published(
+            event_id=envelope.event_id,
+            event_type=envelope.event_type,
+            correlation_id=event.correlation_id,
+            aggregate_type=AGGREGATE_ORDER,
+            aggregate_id=format_aggregate_id(AGGREGATE_ORDER, order.id),
             payload=envelope.to_dict(),
         )
 
@@ -185,6 +196,14 @@ def _publish_payment_requested(correlation_id, order_id, amount):
         event_type=envelope.event_type,
         payload=envelope.to_dict(),
     )
+    EventHistoryService.record_published(
+        event_id=envelope.event_id,
+        event_type=envelope.event_type,
+        correlation_id=correlation_id,
+        aggregate_type=AGGREGATE_ORDER,
+        aggregate_id=format_aggregate_id(AGGREGATE_ORDER, order_id),
+        payload=envelope.to_dict(),
+    )
 
 
 def _publish_release_inventory(correlation_id, order_id, order):
@@ -207,5 +226,13 @@ def _publish_release_inventory(correlation_id, order_id, order):
     OutboxService.create_event(
         event_id=envelope.event_id,
         event_type=envelope.event_type,
+        payload=envelope.to_dict(),
+    )
+    EventHistoryService.record_published(
+        event_id=envelope.event_id,
+        event_type=envelope.event_type,
+        correlation_id=correlation_id,
+        aggregate_type=AGGREGATE_ORDER,
+        aggregate_id=format_aggregate_id(AGGREGATE_ORDER, order_id),
         payload=envelope.to_dict(),
     )

@@ -19,6 +19,8 @@ from orders.events.order_events import (
     PAYMENT_FAILED_RETRY,
 )
 from orders.events.failure_handler import FailureHandler
+from orders.events.audit.services import EventHistoryService
+from orders.events.audit.constants import AGGREGATE_ORDER, format_aggregate_id
 from orders.services.order_service import OrderService
 
 
@@ -79,6 +81,9 @@ class KafkaEventConsumer:
             correlation_id=envelope.correlation_id,
         )
 
+    def _extract_aggregate_id(self, envelope: EventEnvelope) -> str:
+        return envelope.payload.get("order_id", "unknown")
+
     def start(self):
         self.consumer.subscribe([
             INVENTORY_RESERVED,
@@ -130,6 +135,16 @@ class KafkaEventConsumer:
                             EVENT_HANDLERS[envelope.event_type](envelope)
                             IdempotencyService.mark_processed(envelope.event_id, envelope.event_type)
 
+                            aggregate_id = self._extract_aggregate_id(envelope)
+                            EventHistoryService.record_consumed(
+                                event_id=envelope.event_id,
+                                event_type=envelope.event_type,
+                                correlation_id=envelope.correlation_id,
+                                aggregate_type=AGGREGATE_ORDER,
+                                aggregate_id=format_aggregate_id(AGGREGATE_ORDER, aggregate_id),
+                                payload=envelope.to_dict(),
+                            )
+
                         else:
                             logger.warning("No handler for event_type %s", envelope.event_type)
 
@@ -143,7 +158,17 @@ class KafkaEventConsumer:
 
                 except Exception as exc:
                     self.consumer.commit(msg)
-                    # Route to the correct failure handler based on base event type
+
+                    aggregate_id = envelope.payload.get("order_id", "unknown")
+                    EventHistoryService.record_consumed_failed(
+                        event_id=envelope.event_id,
+                        event_type=envelope.event_type,
+                        correlation_id=envelope.correlation_id,
+                        aggregate_type=AGGREGATE_ORDER,
+                        aggregate_id=format_aggregate_id(AGGREGATE_ORDER, aggregate_id),
+                        payload=envelope.to_dict(),
+                    )
+
                     base_type = envelope.event_type.replace(".retry", "")
                     handler = self.failure_handlers.get(base_type)
                     if handler:
