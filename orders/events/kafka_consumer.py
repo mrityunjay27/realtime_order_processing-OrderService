@@ -4,6 +4,8 @@ from confluent_kafka import Consumer, KafkaError
 from django.conf import settings
 from django.db import transaction, IntegrityError
 
+from core.logging import context as logging_context
+
 logger = logging.getLogger(__name__)
 
 from orders.events.event_envelope import EventEnvelope
@@ -124,7 +126,25 @@ class KafkaEventConsumer:
                 envelope = EventEnvelope.from_json(msg.value().decode("utf-8"))
                 envelope_dict = envelope.to_dict()
 
-                logger.info("Received event [%s] from %s: %s", envelope.event_id, envelope.event_type, envelope.payload)
+                logging_context.set_context(
+                    correlation_id=envelope.correlation_id,
+                    event_id=envelope.event_id,
+                    event_type=envelope.event_type,
+                    kafka={
+                        "topic": msg.topic(),
+                        "partition": msg.partition(),
+                        "offset": msg.offset(),
+                    },
+                )
+
+                logger.info(
+                    "Kafka event received",
+                    extra={
+                        "topic": msg.topic(),
+                        "partition": msg.partition(),
+                        "offset": msg.offset(),
+                    },
+                )
 
                 try:
                     with transaction.atomic():
@@ -175,6 +195,9 @@ class KafkaEventConsumer:
                         handler.handle(envelope_dict, exc)
                     else:
                         logger.exception("No failure handler for event_type %s", envelope.event_type)
+
+                finally:
+                    logging_context.clear_context()
 
         finally:
             self.consumer.close()

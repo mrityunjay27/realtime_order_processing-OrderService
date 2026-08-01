@@ -13,6 +13,9 @@ from orders.events.exceptions import (
     NonRetryableEventException,
 )
 from dataclasses import asdict
+from uuid import uuid4
+
+from core.logging import context as logging_context
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,7 @@ class OrderService:
             )
 
         return OrderCreatedEvent(
+            correlation_id=logging_context.get_correlation_id() or str(uuid4()),
             order_id=str(order.id),
             customer_id=str(order.customer.id),
             total_amount=float(order.total_amount),
@@ -49,6 +53,8 @@ class OrderService:
         This guarantees that the order and the event are either both saved
         or neither is — no orphaned events or lost orders.
         """
+
+        logger.info("Order creation started")
 
         order = Order.objects.create(
             customer=customer,
@@ -103,6 +109,8 @@ class OrderService:
             aggregate_id=format_aggregate_id(AGGREGATE_ORDER, order.id),
             payload=envelope.to_dict(),
         )
+
+        logger.info("Order created with id %s", order.id)
 
         return order
     
